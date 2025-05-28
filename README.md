@@ -181,12 +181,12 @@ All parameters are set in `config.json`:
 ## 🗺️ To-Do
 
 <!--KANBAN_START-->
-| Todo (5) | In Progress (3) | Done (22) |
+| Todo (5) | In Progress (4) | Done (22) |
 | --- | --- | --- |
 | PDF reports | Summary of vulnerabilities by severity | Vulnerability severity classification |
 | Proxy integration (Tor/Chain) | Nikto: Auto-select web ports from Nmap scan results | Add network target support to nmap plugin configuration |
 | Integrate dig | Dynamic plugin chaining: automatic orchestration based on scan dependencies | Add require and enabled fields to Nmap |
-| Integrate nuclei | &nbsp; | Auto-update Kanban board in README from GitHub Projects |
+| Integrate nuclei | Implement target registry for cross-plugin orchestration | Auto-update Kanban board in README from GitHub Projects |
 | Multi-language support (RU/EN) | &nbsp; | Expansion of scan complexity levels |
 | &nbsp; | &nbsp; | Scanner update check before run |
 | &nbsp; | &nbsp; | Reports from PostgreSQL (HTML, Terminal) |
