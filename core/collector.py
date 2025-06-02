@@ -41,10 +41,11 @@ def connect_to_db():
 
 def purge_results(cursor):
     try:
-        cursor.execute("DELETE FROM results;")
-        logging.info("Таблица results успешно очищена.")
+        cursor.execute("TRUNCATE results RESTART IDENTITY CASCADE;")
+        cursor.execute("TRUNCATE registry RESTART IDENTITY CASCADE;")
+        logging.info("Таблицы results и registry успешно очищены.")
     except psycopg2.Error as e:
-        logging.critical(f"Ошибка при очистке таблицы results: {e}")
+        logging.critical(f"Ошибка при очистке таблиц results/registry: {e}")
         exit(1)
 
 
@@ -139,23 +140,11 @@ def process_temp_files(cursor, temp_files):
                         data, important_fields
                     ):
                         results.append(data)
-
-                for data in merged_data:
-                    source = data.get("source", "unknown")
-                    data["target"] = (
-                        ip_target
-                        if source == "IP"
-                        else (
-                            domain_target if source in ["Domain", "Both"] else "unknown"
-                        )
-                    )
-                    if not important_fields or is_meaningful_entry(
-                        data, important_fields
-                    ):
-                        results.append(data)
             else:
                 for f in files:
-                    parsed = plugin_parser.parse(f["path"], f.get("source", "unknown"))
+                    parsed = plugin_parser.parse(
+                        f["path"], f.get("source", "unknown"), f.get("port", "-")
+                    )
                     for entry in parsed:
                         entry["target"] = (
                             ip_target if f.get("source") == "IP" else domain_target

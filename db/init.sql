@@ -9,10 +9,11 @@ BEGIN
 END
 $$;
 
--- Удаление старой таблицы results
+-- Удаление старых таблиц
+DROP TABLE IF EXISTS registry;
 DROP TABLE IF EXISTS results;
 
--- Создание единой универсальной таблицы results
+-- Основная таблица results
 CREATE TABLE results (
     id SERIAL PRIMARY KEY,
     target TEXT NOT NULL,
@@ -23,11 +24,28 @@ CREATE TABLE results (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Создание индекса на поле data для ускорения поиска внутри JSONB
 CREATE INDEX idx_results_data ON results USING GIN (data);
-
--- Создание индекса на поле plugin для ускорения выборки по типу плагина
 CREATE INDEX idx_results_plugin ON results (plugin);
-
--- Создание индекса на поле target для ускорения выборки по целям
 CREATE INDEX idx_results_target ON results (target);
+
+-- Новая таблица реестра целей
+CREATE TABLE registry (
+    id SERIAL PRIMARY KEY,
+    target_type TEXT NOT NULL,
+    target_value TEXT NOT NULL,
+    port INTEGER,
+    protocol TEXT,
+    source_plugin TEXT,
+    status TEXT DEFAULT 'new',
+    tags TEXT[],
+    meta JSONB,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (target_type, target_value, port, protocol)
+);
+
+CREATE INDEX idx_registry_target_value ON registry (target_value);
+CREATE INDEX idx_registry_target_type ON registry (target_type);
+CREATE INDEX idx_registry_status ON registry (status);
+CREATE INDEX idx_registry_tags ON registry USING GIN (tags);
+CREATE INDEX idx_registry_meta ON registry USING GIN (meta);

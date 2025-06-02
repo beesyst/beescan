@@ -61,7 +61,8 @@
         "extra", "cpe", "script_output"] %}
         {% set column_order.keys = base_keys | select("in", all_keys) | list %}
         {% elif module_name == "nikto" %}
-        {% set column_order.keys = ["source", "url", "method", "msg", "id", "osvdb", "uri", "description", "iplink",
+        {% set column_order.keys = ["source", "port", "url", "method", "msg", "id", "osvdb", "uri", "description",
+        "iplink",
         "namelink", "references"] | select("in", all_keys) | list %}
         {% elif module_name == "dig" %}
         {% set column_order.keys = ["ttl", "data", "name", "type", "target", "section"] | select("in", all_keys) | list

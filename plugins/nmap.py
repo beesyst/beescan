@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 
 from core.logger_plugin import setup_plugin_logger
+from core.registry import add_target
 from core.severity import classify_severity
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -55,7 +56,7 @@ def format_script_output(raw: str) -> str:
         for line in raw.splitlines()
         if line.strip() and line.strip() != "-"
     ]
-    unique_lines = list(dict.fromkeys(lines))  # Сохраняем порядок + убираем дубли
+    unique_lines = list(dict.fromkeys(lines))
 
     sections = []
 
@@ -405,6 +406,31 @@ async def scan(config):
                 sources.append(f"network_{proto}")
 
     results = await asyncio.gather(*tasks)
+
+    # После каждого скана, парсим XML и добавляем цели в registry
+    for path, src in zip(results, sources):
+        entries = parse(path, src)
+        for ent in entries:
+            # Только открытые веб-порты (http/https/web)
+            if (
+                ent.get("state") == "open"
+                and ent.get("protocol") == "tcp"
+                and ent.get("service_name", "").lower() in ["http", "https"]
+            ):
+                add_target(
+                    target_type="ip" if "ip" in src else "domain",
+                    target_value=(
+                        config.get("scan_config", {}).get("target_ip")
+                        if "ip" in src
+                        else config.get("scan_config", {}).get("target_domain")
+                    ),
+                    port=ent.get("port"),
+                    protocol=ent.get("protocol"),
+                    source_plugin="nmap",
+                    tags=["web"],
+                    meta={"service": ent.get("service_name")},
+                )
+
     return [
         {"plugin": "nmap", "path": path, "source": src}
         for path, src in zip(results, sources)

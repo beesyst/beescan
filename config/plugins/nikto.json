@@ -9,102 +9,128 @@
         "http": {
           "ports": [80],
           "tuning": "2,4,5",
-          "flags": "-maxtime 100 -nointeractive -Display P -ask no"
+          "flags": "-maxtime 100 -nointeractive -Display P -ask no",
+          "enabled": true
         },
         "https": {
           "ports": [443],
           "tuning": "2,4,5",
-          "flags": "-maxtime 100 -nointeractive -Display P -ask no -ssl"
+          "flags": "-maxtime 100 -nointeractive -Display P -ask no -ssl",
+          "enabled": true
         }
       },
       "domain": {
         "http": {
           "ports": [80],
           "tuning": "2,4,5",
-          "flags": "-maxtime 100 -nointeractive -Display P -ask no"
+          "flags": "-maxtime 100 -nointeractive -Display P -ask no",
+          "enabled": true
         },
         "https": {
           "ports": [443],
           "tuning": "2,4,5",
-          "flags": "-maxtime 100 -nointeractive -Display P -ask no -ssl"
+          "flags": "-maxtime 100 -nointeractive -Display P -ask no -ssl",
+          "enabled": true
         }
       }
     },
     "middle": {
       "ip": {
         "http": {
-          "ports": [80],
+          "ports": [80, 8080, 8000, 8888, 8081, 5000, 9080, 81],
           "tuning": "1,2,3,4,5",
-          "flags": "-Display V -nointeractive -followredirects -ask no"
+          "flags": "-Display V -nointeractive -followredirects -ask no",
+          "enabled": true
         },
         "https": {
-          "ports": [443],
+          "ports": [443, 8443, 9443, 10443, 3443],
           "tuning": "1,2,3,4,5",
-          "flags": "-Display V -nointeractive -followredirects -ask no -ssl"
+          "flags": "-Display V -nointeractive -followredirects -ask no -ssl",
+          "enabled": true
         }
       },
       "domain": {
         "http": {
-          "ports": [80],
+          "ports": [80, 8080, 8000, 8888, 8081, 5000, 9080, 81],
           "tuning": "1,2,3,4,5",
-          "flags": "-Display V -nointeractive -followredirects -ask no"
+          "flags": "-Display V -nointeractive -followredirects -ask no",
+          "enabled": true
         },
         "https": {
-          "ports": [443],
+          "ports": [443, 8443, 9443, 10443, 3443],
           "tuning": "1,2,3,4,5",
-          "flags": "-Display V -nointeractive -followredirects -ask no -ssl"
+          "flags": "-Display V -nointeractive -followredirects -ask no -ssl",
+          "enabled": true
         }
       }
     },
     "hard": {
       "ip": {
         "http": {
-          "ports": [80],
+          "ports": [80, 8080, 8000, 8888, 8081, 5000, 9080, 8880, 7001],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c",
-          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no"
+          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no",
+          "enabled": true
         },
         "https": {
-          "ports": [443],
+          "ports": [443, 8443, 9443, 10443, 3443, 4443, 9444, 2083, 2053],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c",
-          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no -ssl"
+          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no -ssl",
+          "enabled": true
         }
       },
       "domain": {
         "http": {
-          "ports": [80],
+          "ports": [80, 8080, 8000, 8888, 8081, 5000, 9080, 8880, 7001],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c",
-          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no"
+          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no",
+          "enabled": true
         },
         "https": {
-          "ports": [443],
+          "ports": [443, 8443, 9443, 10443, 3443, 4443, 9444, 2083, 2053],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c",
-          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no -ssl"
+          "flags": "-Display V -maxtime 120 -followredirects -evasion 1,2,3 -ask no -ssl",
+          "enabled": true
         }
       }
     },
     "extreme": {
       "ip": {
         "http": {
-          "ports": [80],
+          "ports": [
+            80, 81, 82, 83, 8000, 8008, 8080, 8081, 8880, 8888, 5000, 7001,
+            9080, 8088
+          ],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c,x",
-          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no"
+          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no",
+          "enabled": true
         },
         "https": {
-          "ports": [443],
+          "ports": [
+            443, 4443, 5443, 8443, 9443, 10443, 3443, 9444, 2083, 2053, 9444
+          ],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c,x",
-          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no -ssl"
+          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no -ssl",
+          "enabled": true
         }
       },
       "domain": {
         "http": {
-          "ports": [80],
+          "ports": [
+            80, 81, 82, 83, 8000, 8008, 8080, 8081, 8880, 8888, 5000, 7001,
+            9080, 8088
+          ],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c,x",
-          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no"
+          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no",
+          "enabled": true
         },
         "https": {
-          "ports": [443],
+          "ports": [
+            443, 4443, 5443, 8443, 9443, 10443, 3443, 9444, 2083, 2053, 9444
+          ],
           "tuning": "1,2,3,4,5,6,7,8,9,0,a,b,c,x",
-          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no -ssl"
+          "flags": "-Display VE -maxtime 300 -followredirects -evasion 1,2,3,4,5,6,7,8 -ask no -ssl",
+          "enabled": true
         }
       }
     }

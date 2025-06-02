@@ -20,18 +20,21 @@
     "clear_db": true,
     "report_theme": "dark"
   },
+  "report_category_order": ["Network", "AppSec", "DNS", "Vuln"],
   "plugins": [
     {
       "name": "nmap",
       "enabled": true,
       "category": "Network",
       "install": ["apt-get update", "apt-get install -y nmap"],
+      "depends_on": [],
+      "strict_dependencies": false,
       "level": "easy"
     },
     {
       "name": "nikto",
-      "enabled": false,
-      "category": "Application Security",
+      "enabled": true,
+      "category": "AppSec",
       "install": [
         "apt-get update",
         "apt-get install -y git perl libnet-ssleay-perl libwhisker2-perl liblwp-useragent-determined-perl",
@@ -41,6 +44,8 @@
         "echo 'perl nikto.pl \"$@\"' >> /usr/local/bin/nikto",
         "chmod +x /usr/local/bin/nikto"
       ],
+      "depends_on": ["nmap"],
+      "strict_dependencies": false,
       "level": "easy"
     },
     {
@@ -48,7 +53,7 @@
       "enabled": false,
       "ip_required": false,
       "vhost_required": true,
-      "category": "DNS Health",
+      "category": "DNS",
       "install": ["apt-get update", "apt-get install -y dnsutils"],
       "command": "",
       "output": "results/dig.json",
@@ -77,7 +82,7 @@
       "enabled": false,
       "ip_required": false,
       "vhost_required": true,
-      "category": "Vulnerability Scan",
+      "category": "Vuln",
       "install": [
         "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
         "cp /root/go/bin/nuclei /usr/local/bin/nuclei"
@@ -106,7 +111,7 @@
     },
     {
       "name": "amass",
-      "category": "discovery",
+      "category": "Discovery",
       "command": "amass enum -d {target} -json /results/amass.json",
       "output": "results/amass.json",
       "enabled": false

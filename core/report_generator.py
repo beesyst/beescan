@@ -101,6 +101,7 @@ def categorize_results(entries):
     plugin_categories = {
         plugin["name"]: plugin.get("category", "General Info") for plugin in PLUGINS
     }
+    plugin_order = {plugin["name"]: idx for idx, plugin in enumerate(PLUGINS)}
 
     structured = defaultdict(dict)
     global_meta = {"created_at": None}
@@ -116,23 +117,19 @@ def categorize_results(entries):
         if global_meta["created_at"] is None and entry.get("created_at"):
             global_meta["created_at"] = entry["created_at"]
 
+    for cat in structured:
+        structured[cat] = OrderedDict(
+            sorted(structured[cat].items(), key=lambda x: plugin_order.get(x[0], 999))
+        )
+
     return structured, global_meta
 
 
 def sort_categories_by_priority(raw_results):
-    priority = {
-        "Network Security": 0,
-        "Application Security": 1,
-        "DNS Health": 2,
-        "Vulnerability Scan": 3,
-        "Web Catalog & Crawl": 4,
-        "OSINT / Metadata": 5,
-        "Database Security": 6,
-        "Cloud & API Exposure": 7,
-        "General Info": 99,
-    }
+    category_order = CONFIG.get("report_category_order", [])
+    order = {cat: idx for idx, cat in enumerate(category_order)}
     return OrderedDict(
-        sorted(raw_results.items(), key=lambda item: priority.get(item[0], 50))
+        sorted(raw_results.items(), key=lambda item: order.get(item[0], 999))
     )
 
 
