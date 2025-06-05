@@ -181,10 +181,10 @@ All parameters are set in `config.json`:
 ## 🗺️ To-Do
 
 <!--KANBAN_START-->
-| Todo (5) | In Progress (1) | Done (26) |
+| Todo (5) | In Progress (2) | Done (26) |
 | --- | --- | --- |
 | PDF reports | Summary of vulnerabilities by severity | Nikto: Auto-select web ports from Nmap scan results |
-| Proxy integration (Tor/Chain) | &nbsp; | Dynamic plugin chaining: automatic orchestration based on scan dependencies |
+| Proxy integration (Tor/Chain) | Normalize database structure and remove legacy `results` table | Dynamic plugin chaining: automatic orchestration based on scan dependencies |
 | Integrate dig | &nbsp; | Implement target registry for cross-plugin orchestration |
 | Integrate nuclei | &nbsp; | Strict report and plugin order in output (categories + plugins) |
 | Multi-language support (RU/EN) | &nbsp; | Vulnerability severity classification |
