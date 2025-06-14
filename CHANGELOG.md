@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/beesyst/beescan/compare/v1.0.0...v1.1.0) (2025-06-14)
+
+
+### Features
+
+* **nmap:** migrate to core/severity.py for unified severity classification ([14f395a](https://github.com/beesyst/beescan/commit/14f395a0d1341931a9fe726dcc04836d5f6cd8d3))
+* plugin templating and core refactor for plugin system (+MINOR) ([de014b6](https://github.com/beesyst/beescan/commit/de014b674581399c0ed5c4a76564ece707fdf832))
+
+
+### Bug Fixes
+
+* **orchestrator:** correct plugin execution order and dependency handling ([b111790](https://github.com/beesyst/beescan/commit/b111790d750c18931fb18befc86a5128acc62864))
+
 ## [Unreleased]
 
 ---
