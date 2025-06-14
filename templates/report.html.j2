@@ -27,134 +27,14 @@
         <p><strong>Time:</strong> {{ meta.created_at or "Unknown" }}</p>
     </div>
 
+    {# Перебираем категории и модули (плагины) #}
     {% for category, modules in structured_results.items() %}
     <div class="module">
         <h2>{{ category }}</h2>
 
         {% for module_name, entries in modules.items() %}
-        <h3>{{ module_name }}</h3>
-
-        {% set exclude_keys = ["severity", "created_at", "plugin"] %}
-        {% set all_rows = [] %}
-
-        {% for entry in entries %}
-        {% if entry["data"] is mapping %}
-        {% set _ = all_rows.append(entry["data"]) %}
-        {% elif entry["data"] is iterable and entry["data"] is not string %}
-        {% for item in entry["data"] %}
-        {% if item is mapping %}
-        {% set _ = all_rows.append(item) %}
-        {% endif %}
-        {% endfor %}
-        {% endif %}
-        {% endfor %}
-
-        {% if all_rows and all_rows[0] is mapping %}
-        {% set all_keys = all_rows[0].keys() | reject("in", exclude_keys) | list %}
-        {% else %}
-        {% set all_keys = [] %}
-        {% endif %}
-
-        {% set column_order = namespace(keys=all_keys) %}
-        {% if module_name == "nmap" %}
-        {% set base_keys = ["source", "port", "protocol", "state", "reason", "service_name", "product", "version",
-        "extra", "cpe", "script_output"] %}
-        {% set column_order.keys = base_keys | select("in", all_keys) | list %}
-        {% elif module_name == "nikto" %}
-        {% set column_order.keys = ["source", "port", "url", "method", "msg", "id", "osvdb", "uri", "description",
-        "iplink",
-        "namelink", "references"] | select("in", all_keys) | list %}
-        {% elif module_name == "dig" %}
-        {% set column_order.keys = ["ttl", "data", "name", "type", "target", "section"] | select("in", all_keys) | list
-        %}
-        {% endif %}
-        {% set plugin_name = module_name %}
-
-        {% if column_order.keys %}
-        <table>
-            <thead>
-                <tr>
-                    {% for key in column_order.keys %}
-                    <th>{{ key.replace('_', ' ') | title }}</th>
-                    {% endfor %}
-                    <th>Severity</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% set rows_to_render = [] %}
-
-                {% if module_name == "nmap" %}
-                {% set seen = {} %}
-                {% for row in all_rows %}
-                {% set key = (row.get("port", ""), row.get("protocol", ""), row.get("service_name", "")) %}
-                {% if key not in seen %}
-                {% set _ = seen.update({key: row}) %}
-                {% elif row.get("source") == "Both" %}
-                {% set _ = seen.update({key: row}) %}
-                {% endif %}
-                {% endfor %}
-                {% set rows_to_render = seen.values() %}
-                {% else %}
-                {% set rows_to_render = all_rows %}
-                {% endif %}
-
-                {% for row in rows_to_render %}
-                {% set values = [] %}
-                {% for key in column_order.keys %}
-                {% set _ = values.append(row[key] if row[key] else "-") %}
-                {% endfor %}
-                {% set has_real_data = values | select('string') | reject('equalto', '-') | list | length > 1 %}
-                {% if has_real_data %}
-                <tr>
-                    {% for key in column_order.keys %}
-                    {% if key == "script_output" %}
-                    <td class="script-output">
-                        <pre>{{ row[key] | e if row[key] else "-" }}</pre>
-                    </td>
-                    {% elif key == "references" %}
-                    <td>
-                        {% set refs = row[key] if row[key] else "-" %}
-                        {% if refs is string and refs.startswith("http") %}
-                        <a href="{{ refs }}" target="_blank">{{ refs }}</a>
-                        {% elif refs is iterable and refs is not string %}
-                        {% for r in refs %}
-                        {% if r.startswith("http") %}
-                        <div><a href="{{ r }}" target="_blank">{{ r }}</a></div>
-                        {% else %}
-                        <div>{{ r }}</div>
-                        {% endif %}
-                        {% endfor %}
-                        {% else %}
-                        {{ refs }}
-                        {% endif %}
-                    </td>
-                    {% elif key == "msg" %}
-                    <td>
-                        {{ (row[key][:120] ~ ("..." if row[key]|length > 120 else "")) | e if row[key] else "-" }}
-                    </td>
-                    {% elif key in ["source", "id"] %}
-                    <td style="white-space: nowrap;">{{ row[key] if row[key] else "-" }}</td>
-                    {% else %}
-                    <td>{{ row[key] | default("-") | e }}</td>
-                    {% endif %}
-                    {% endfor %}
-                    <td>
-                        {{ row.severity | default("info") }}
-                    </td>
-                </tr>
-                {% endif %}
-                {% endfor %}
-            </tbody>
-        </table>
-
-        {% if duration_map and plugin_name in duration_map %}
-        <div class="duration">
-            ⏱️ Scan duration: <strong>{{ duration_map[plugin_name] }} sec</strong>
-        </div>
-        {% endif %}
-        {% else %}
-        <pre>{{ all_rows | tojson(indent=2) }}</pre>
-        {% endif %}
+        {% set template_path = "plugins/" ~ module_name ~ ".html.j2" %}
+        {% include template_path ignore missing %}
         {% endfor %}
     </div>
     {% endfor %}

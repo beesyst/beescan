@@ -3,6 +3,7 @@ import os
 
 import psycopg2
 
+# Конфиг для подключения к БД
 DB = {
     "user": os.getenv("POSTGRES_USER", "secweb_user"),
     "password": os.getenv("POSTGRES_PASSWORD", "secweb_pass"),
@@ -20,6 +21,12 @@ with open(CONFIG_PATH, "r") as f:
 
 PURGE_ON_START = CONFIG.get("scan_config", {}).get("purge_on_start", False)
 
+# Все таблицы, которые надо очищать перед запуском!
+PURGE_TABLES = [
+    "evidence",
+    "registry",
+]
+
 
 def connect():
     return psycopg2.connect(
@@ -34,11 +41,15 @@ def connect():
 def purge():
     conn = connect()
     cur = conn.cursor()
-    cur.execute("DELETE FROM results;")
+    for table in PURGE_TABLES:
+        try:
+            cur.execute(f"DELETE FROM {table};")
+            print(f"🗑 Очистка таблицы {table} завершена.")
+        except Exception as e:
+            print(f"⚠️ Ошибка при очистке {table}: {e}")
     conn.commit()
     cur.close()
     conn.close()
-    print("🗑 Очистка таблицы results завершена.")
 
 
 def main():

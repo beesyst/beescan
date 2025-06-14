@@ -18,48 +18,44 @@ container_log = logging.getLogger()
 plugin_log = setup_plugin_logger("nmap")
 
 
+# Запуск Nmap и сохранение XML-результата во временный файл
 def run_nmap(target: str, suffix: str, args: str):
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{suffix}.xml")
     output_path = temp_file.name
     temp_file.close()
 
     container_log.info(f"Создан временный файл для Nmap: {output_path}")
-
     cmd = f"nmap {args} {target} -oX {output_path}"
     container_log.info(f"Запуск Nmap на {target}: {cmd}")
 
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
     full_log = f"Запуск Nmap на {target}: {cmd}\n"
-
     if result.stdout:
         full_log += result.stdout.strip()
-
     if result.stderr:
         full_log += f"\n[STDERR]:\n{result.stderr.strip()}"
 
     plugin_log.info(full_log)
-
     if result.returncode != 0:
         raise RuntimeError(f"Nmap завершился с ошибкой: {result.stderr.strip()}")
-
     return output_path
 
 
+# Форматирование вывода скриптов (например TLS, сертификаты, уязвимости)
 def format_script_output(raw: str) -> str:
     raw = raw.strip()
     if raw == "-" or not raw:
         return "-"
-
     lines = [
         line.strip()
         for line in raw.splitlines()
         if line.strip() and line.strip() != "-"
     ]
     unique_lines = list(dict.fromkeys(lines))
-
     sections = []
 
+    # TLS Section
     if any("TLSv1." in l or "TLSv1.3" in l for l in unique_lines):
         tls_lines = []
         current_version = ""
@@ -71,7 +67,7 @@ def format_script_output(raw: str) -> str:
                 tls_lines.append(f"- {line.strip()}")
         if tls_lines:
             sections.append("[TLS Cipher Support]\n" + "\n".join(tls_lines))
-
+    # Certificate Section
     if any("Subject:" in l or "Valid:" in l for l in unique_lines):
         cert_block = ["[Cert Info]"]
         for key in [
@@ -86,17 +82,17 @@ def format_script_output(raw: str) -> str:
         ]:
             cert_block.extend([line for line in unique_lines if key in line])
         sections.append("\n".join(cert_block))
-
+    # FTP Section
     if any("FTP" in l or "Anonymous FTP login allowed" in l for l in unique_lines):
         ftp_block = ["[FTP Info]"]
         ftp_block.extend([line for line in unique_lines if "FTP" in line])
         sections.append("\n".join(ftp_block))
-
+    # SSH Section
     if any("SSH" in l for l in unique_lines):
         ssh_block = ["[SSH Info]"]
         ssh_block.extend([line for line in unique_lines if "SSH" in line])
         sections.append("\n".join(ssh_block))
-
+    # HTTP Response Patterns
     if any("/nice ports" in l or "FourOhFourRequest" in l for l in unique_lines):
         http_block = ["[HTTP Response Patterns]"]
         http_block.extend(
@@ -107,7 +103,7 @@ def format_script_output(raw: str) -> str:
             ]
         )
         sections.append("\n".join(http_block))
-
+    # Vulnerabilities/CVE
     if any("CVE-" in l or "vulnerab" in l.lower() for l in unique_lines):
         vuln_lines = [
             line
@@ -129,10 +125,10 @@ def format_script_output(raw: str) -> str:
         )
         vuln_block = "[Vulnerabilities]\n" + "\n".join(counted_cves + vuln_lines)
         sections.append(vuln_block)
-
     return "\n\n".join(sections).strip() if sections else "\n".join(unique_lines)
 
 
+# Парсер XML-результата Nmap для нормализованного вывода (для collector)
 def parse(xml_path: str, source_label: str = "unknown"):
     results = []
     try:
@@ -141,19 +137,36 @@ def parse(xml_path: str, source_label: str = "unknown"):
         host = root.find("host")
         ports = host.find("ports") if host is not None else None
 
+        # IP, FQDN, OS из hostinfo
+        ip = None
+        fqdn = None
+        os_name = None
+        for addr in host.findall("address") if host is not None else []:
+            if addr.attrib.get("addrtype") == "ipv4":
+                ip = addr.attrib.get("addr")
+        for hostnames in host.findall("hostnames") if host is not None else []:
+            hn = hostnames.find("hostname")
+            if hn is not None:
+                fqdn = hn.attrib.get("name")
+        for os_el in host.findall("os") if host is not None else []:
+            match = os_el.find("osmatch")
+            if match is not None:
+                os_name = match.attrib.get("name")
+
         if ports is not None:
             for port in ports.findall("port"):
                 state_el = port.find("state")
                 service_el = port.find("service")
-
                 raw_output = (
                     "; ".join(
                         s.attrib.get("output", "") for s in port.findall("script")
                     )
                     or "-"
                 )
-
                 data = {
+                    "ip": ip,
+                    "fqdn": fqdn,
+                    "os": os_name,
                     "port": int(port.attrib.get("portid", 0)),
                     "protocol": port.attrib.get("protocol", "-"),
                     "state": (
@@ -194,16 +207,25 @@ def parse(xml_path: str, source_label: str = "unknown"):
                     "script_output": format_script_output(raw_output),
                     "source": source_label,
                 }
-
                 data["severity"] = classify_severity(data)
+                data["host_meta"] = {"os": os_name}
+                data["service_meta"] = {"cpe": data["cpe"], "extra": data["extra"]}
+                data["vuln_meta"] = {
+                    "state": data["state"],
+                    "reason": data["reason"],
+                    "product": data["product"],
+                    "version": data["version"],
+                    "extra": data["extra"],
+                    "cpe": data["cpe"],
+                    "script_output": data["script_output"],
+                }
                 results.append(data)
-
     except Exception as e:
         raise RuntimeError(f"Ошибка при парсинге XML файла {xml_path}: {e}")
-
     return results
 
 
+# Важные поля для meaningful-логики
 def get_important_fields():
     return [
         "port",
@@ -219,6 +241,7 @@ def get_important_fields():
     ]
 
 
+# Слияние результатов по разным источникам (например, IP+domain)
 def merge_sources(a, b):
     return "+".join(sorted(set(a.split("+")) | set(b.split("+"))))
 
@@ -252,7 +275,6 @@ def merge_entries(*entry_lists):
                     if v1 != v2:
                         identical = False
                         break
-
                 if identical:
                     existing["source"] = merge_sources(
                         existing["source"], entry["source"]
@@ -260,15 +282,7 @@ def merge_entries(*entry_lists):
                     if "script_output" in entry and "script_output" in existing:
                         if entry["script_output"] != existing["script_output"]:
                             combined = "\n\n".join(
-                                filter(
-                                    None,
-                                    set(
-                                        [
-                                            existing["script_output"],
-                                            entry["script_output"],
-                                        ]
-                                    ),
-                                )
+                                set([existing["script_output"], entry["script_output"]])
                             )
                             existing["script_output"] = format_script_output(combined)
                 else:
@@ -276,10 +290,10 @@ def merge_entries(*entry_lists):
                     merged[new_key] = entry
             else:
                 merged[key] = entry
-
     return list(merged.values())
 
 
+# Нормализация списка портов
 def normalize_ports(port_list):
     normalized = []
     for item in port_list:
@@ -295,13 +309,13 @@ def normalize_ports(port_list):
     return ",".join(normalized)
 
 
+# Асинхронный запуск Nmap сканов по всем профилям (ip, domain, network)
 async def scan(config):
     ip = config.get("scan_config", {}).get("target_ip")
     domain = config.get("scan_config", {}).get("target_domain")
     plugin_config = next(
         (p for p in config.get("plugins", []) if p["name"] == "nmap"), {}
     )
-
     level = plugin_config.get("level", "easy")
     NMAP_LEVELS_PATH = os.path.join(ROOT_DIR, "config", "plugins", "nmap.json")
     with open(NMAP_LEVELS_PATH) as f:
@@ -311,6 +325,7 @@ async def scan(config):
     tasks = []
     sources = []
 
+    # IP scan
     if ip:
         for proto, proto_conf in level_config.get("ip", {}).items():
             if not proto_conf.get("enabled", True):
@@ -321,7 +336,6 @@ async def scan(config):
                 scripts = proto_conf.get("scripts", [])
                 script_names = []
                 script_args = []
-
                 for s in scripts:
                     if isinstance(s, str):
                         script_names.append(s)
@@ -329,7 +343,6 @@ async def scan(config):
                         script_names.append(s["name"])
                         if "args" in s and s["args"]:
                             script_args.append(s["args"].replace('"', "'"))
-
                 parts = [
                     proto_conf["flags"],
                     ports_str,
@@ -340,6 +353,7 @@ async def scan(config):
                 tasks.append(asyncio.to_thread(run_nmap, ip, f"ip_{proto}", full_args))
                 sources.append(f"ip_{proto}")
 
+    # Domain scan
     if domain:
         for proto, proto_conf in level_config.get("domain", {}).items():
             if not proto_conf.get("enabled", True):
@@ -350,7 +364,6 @@ async def scan(config):
                 scripts = proto_conf.get("scripts", [])
                 script_names = []
                 script_args = []
-
                 for s in scripts:
                     if isinstance(s, str):
                         script_names.append(s)
@@ -358,21 +371,19 @@ async def scan(config):
                         script_names.append(s["name"])
                         if "args" in s and s["args"]:
                             script_args.append(s["args"].replace('"', "'"))
-
-                script_str = (
-                    f'--script "{",".join(script_names)}"' if script_names else ""
-                )
-                args_str = (
-                    f'--script-args "{",".join(script_args)}"' if script_args else ""
-                )
-                full_args = (
-                    f"{proto_conf['flags']} {ports_str} {script_str} {args_str}".strip()
-                )
+                parts = [
+                    proto_conf["flags"],
+                    ports_str,
+                    f"--script {','.join(script_names)}" if script_names else "",
+                    f"--script-args {','.join(script_args)}" if script_args else "",
+                ]
+                full_args = " ".join(part for part in parts if part).strip()
                 tasks.append(
                     asyncio.to_thread(run_nmap, domain, f"domain_{proto}", full_args)
                 )
                 sources.append(f"domain_{proto}")
 
+    # Network scan (по /24)
     network = config.get("scan_config", {}).get("target_network")
     if network:
         for proto, proto_conf in level_config.get("network", {}).items():
@@ -391,15 +402,13 @@ async def scan(config):
                         script_names.append(s["name"])
                         if "args" in s and s["args"]:
                             script_args.append(s["args"].replace('"', "'"))
-                script_str = (
-                    f'--script "{",".join(script_names)}"' if script_names else ""
-                )
-                args_str = (
-                    f'--script-args "{",".join(script_args)}"' if script_args else ""
-                )
-                full_args = (
-                    f"{proto_conf['flags']} {ports_str} {script_str} {args_str}".strip()
-                )
+                parts = [
+                    proto_conf["flags"],
+                    ports_str,
+                    f"--script {','.join(script_names)}" if script_names else "",
+                    f"--script-args {','.join(script_args)}" if script_args else "",
+                ]
+                full_args = " ".join(part for part in parts if part).strip()
                 tasks.append(
                     asyncio.to_thread(run_nmap, network, f"network_{proto}", full_args)
                 )
@@ -411,7 +420,7 @@ async def scan(config):
     for path, src in zip(results, sources):
         entries = parse(path, src)
         for ent in entries:
-            # Только открытые веб-порты (http/https/web)
+            # Добавляем только открытые web-порты (http/https)
             if (
                 ent.get("state") == "open"
                 and ent.get("protocol") == "tcp"
@@ -437,6 +446,7 @@ async def scan(config):
     ]
 
 
+# Метаданные для генератора/таблиц/отчетов
 def get_summary(data):
     return " | ".join(
         f"{d.get('port', '?')}/{d.get('protocol', '?')} {d.get('state', '?')}"
@@ -458,11 +468,46 @@ def get_column_order():
         "extra",
         "cpe",
         "script_output",
+        "severity",
     ]
 
 
 def get_wide_fields():
-    return ["product", "version", "extra", "script_output", "cpe"]
+    return ["script_output", "extra", "cpe"]
+
+
+def get_view_rows(snapshot):
+    results = []
+    for vuln in snapshot.get("vuln", []):
+        if vuln.get("plugin") == "nmap":
+            service = None
+            if vuln.get("service_id"):
+                service = next(
+                    (
+                        s
+                        for s in snapshot.get("services", [])
+                        if s["id"] == vuln["service_id"]
+                    ),
+                    None,
+                )
+            merged = vuln.copy()
+            if service:
+                merged.update(
+                    {
+                        "port": service.get("port"),
+                        "protocol": service.get("protocol"),
+                        "service_name": service.get("service_name"),
+                        "product": service.get("product"),
+                        "version": service.get("version"),
+                        "extra": (service.get("meta") or {}).get("extra", "-"),
+                        "cpe": (service.get("meta") or {}).get("cpe", "-"),
+                    }
+                )
+            meta = vuln.get("meta", {}) or {}
+            merged["state"] = meta.get("state", "-")
+            merged["reason"] = meta.get("reason", "-")
+            results.append(merged)
+    return results
 
 
 def should_merge_entries():

@@ -1,7 +1,7 @@
 {
   "database": {
     "container_name": "beescan_postgres",
-    "POSTGRES_USER": "secscan",
+    "POSTGRES_USER": "beescan",
     "POSTGRES_PASSWORD": "securepass",
     "POSTGRES_DB": "beescan",
     "POSTGRES_PORT": 5432,
@@ -33,7 +33,7 @@
     },
     {
       "name": "nikto",
-      "enabled": true,
+      "enabled": false,
       "category": "AppSec",
       "install": [
         "apt-get update",

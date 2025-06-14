@@ -1,7 +1,9 @@
 import re
 
+# Уровни серьезности (info = по умолчанию)
 SEVERITY_LEVELS = ["critical", "high", "medium", "low", "info"]
 
+# Ключевые слова для определения уровня серьезности
 SEVERITY_KEYWORDS = {
     "critical": [
         r"\bcve-\d{4}-\d{4,7}\b.{0,32}\b(9\.\d|10\.0|critical|exploit|remote code execution|rce|unauthenticated)\b",
@@ -42,13 +44,17 @@ SEVERITY_KEYWORDS = {
 }
 
 
+# Классификатор severity на основе содержимого entry
 def classify_severity(entry, custom_keywords=None):
     """
-    Универсальная функция для классификации severity.
-    entry: dict (любой результат плагина)
-    custom_keywords: dict, если нужно добавить или переопределить ключевые слова
+    Классификация уровня серьезности для результатов сканера.
+    entry: dict (результат сканера)
+    custom_keywords: dict, если нужно переопределить или дополнить паттерны.
     """
+    if not entry:
+        return "info"
 
+    # Важные поля для поиска
     fields = [
         "script_output",
         "output",
@@ -66,12 +72,14 @@ def classify_severity(entry, custom_keywords=None):
             data.append(str(v).lower())
     text = " ".join(data)
 
+    # Быстрый приоритет по state
     state = entry.get("state", "").lower()
     if state in ["open|filtered", "filtered"]:
         return "low"
     if state == "open":
-        pass
+        pass  # см ниже, если ничего не найдём — будет medium
 
+    # Переопределить ключевые слова если нужно
     keywords = SEVERITY_KEYWORDS.copy()
     if custom_keywords:
         for sev, patterns in custom_keywords.items():
@@ -79,18 +87,21 @@ def classify_severity(entry, custom_keywords=None):
                 keywords[sev] = []
             keywords[sev].extend(patterns)
 
+    # Поиск паттернов по уровням
     for severity in SEVERITY_LEVELS:
         patterns = keywords.get(severity, [])
         for pattern in patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return severity
 
+    # Если порт открыт, но больше ничего не найдено — medium
     if state == "open":
         return "medium"
 
     return "info"
 
 
+# Тестирование
 if __name__ == "__main__":
     sample = {
         "script_output": "Anonymous FTP login allowed. CVE-2021-12345 exploit.",

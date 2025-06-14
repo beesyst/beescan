@@ -23,6 +23,7 @@ DB_CONFIG = CONFIG["database"]
 PLUGINS = CONFIG.get("plugins", [])
 
 
+# Подключение к БД
 def connect_to_db():
     try:
         conn = psycopg2.connect(
@@ -39,16 +40,21 @@ def connect_to_db():
         exit(1)
 
 
-def purge_results(cursor):
+# Очистка таблиц (purge)
+def purge_tables(cursor):
     try:
-        cursor.execute("TRUNCATE results RESTART IDENTITY CASCADE;")
+        cursor.execute("TRUNCATE evidence RESTART IDENTITY CASCADE;")
+        cursor.execute("TRUNCATE vuln RESTART IDENTITY CASCADE;")
+        cursor.execute("TRUNCATE services RESTART IDENTITY CASCADE;")
+        cursor.execute("TRUNCATE hosts RESTART IDENTITY CASCADE;")
         cursor.execute("TRUNCATE registry RESTART IDENTITY CASCADE;")
-        logging.info("Таблицы results и registry успешно очищены.")
+        logging.info("Все основные таблицы успешно очищены.")
     except psycopg2.Error as e:
-        logging.critical(f"Ошибка при очистке таблиц results/registry: {e}")
+        logging.critical(f"Ошибка при очистке таблиц: {e}")
         exit(1)
 
 
+# Динамическая загрузка парсера плагина
 def load_plugin_parser(plugin_name):
     plugin_path = os.path.join(PLUGINS_DIR, f"{plugin_name}.py")
     if not os.path.exists(plugin_path):
@@ -65,6 +71,7 @@ def load_plugin_parser(plugin_name):
         return None
 
 
+# Вспомогательная функция для meaningful записи
 def is_meaningful_entry(entry, important_fields):
     return not all(
         str(entry.get(k, "-")).strip() in ["-", "", "None", "null", "0"]
@@ -72,6 +79,108 @@ def is_meaningful_entry(entry, important_fields):
     )
 
 
+# Получить или создать host (по ip/fqdn)
+def get_or_create_host(cursor, ip=None, fqdn=None, os_name=None, meta=None):
+    cursor.execute("SELECT id FROM hosts WHERE ip = %s AND fqdn = %s", (ip, fqdn))
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    cursor.execute(
+        "INSERT INTO hosts (ip, fqdn, os, meta, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (ip, fqdn, os_name, json.dumps(meta or {}, ensure_ascii=False), datetime.now()),
+    )
+    return cursor.fetchone()[0]
+
+
+# Получить или создать service
+def get_or_create_service(
+    cursor,
+    host_id,
+    port,
+    protocol,
+    service_name,
+    product=None,
+    version=None,
+    banner=None,
+    plugin=None,
+    meta=None,
+):
+    cursor.execute(
+        "SELECT id FROM services WHERE host_id = %s AND port = %s AND protocol = %s AND service_name = %s AND plugin = %s",
+        (host_id, port, protocol, service_name, plugin),
+    )
+    row = cursor.fetchone()
+    if row:
+        return row[0]
+    cursor.execute(
+        "INSERT INTO services (host_id, port, protocol, service_name, product, version, banner, plugin, meta, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (
+            host_id,
+            port,
+            protocol,
+            service_name,
+            product,
+            version,
+            banner,
+            plugin,
+            json.dumps(meta or {}, ensure_ascii=False),
+            datetime.now(),
+        ),
+    )
+    return cursor.fetchone()[0]
+
+
+# Создать уязвимость (vulnerability)
+def create_vuln(
+    cursor,
+    service_id,
+    host_id,
+    plugin,
+    source,
+    category,
+    severity,
+    title,
+    description,
+    refs,
+    meta=None,
+):
+    cursor.execute(
+        """
+        INSERT INTO vuln (service_id, host_id, plugin, source, category, severity, title, description, refs, created_at, meta)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id
+        """,
+        (
+            service_id,
+            host_id,
+            plugin,
+            source,
+            category,
+            severity,
+            title,
+            description,
+            refs,
+            datetime.now(),
+            json.dumps(meta or {}, ensure_ascii=False),
+        ),
+    )
+    return cursor.fetchone()[0]
+
+
+# Создать evidence (raw-лог/доказательство)
+def create_evidence(cursor, vuln_id, plugin, log_type, log_path, raw_log):
+    cursor.execute(
+        """
+        INSERT INTO evidence (vuln_id, plugin, log_type, log_path, raw_log, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s)
+        RETURNING id
+        """,
+        (vuln_id, plugin, log_type, log_path, raw_log, datetime.now()),
+    )
+    return cursor.fetchone()[0]
+
+
+# Обработка временных файлов (главная логика разбора)
 def process_temp_files(cursor, temp_files):
     total_added = 0
     grouped_files = {}
@@ -84,7 +193,6 @@ def process_temp_files(cursor, temp_files):
         if not plugin_name:
             logging.warning(f"Некорректные данные в буфере: {temp_file_info}")
             continue
-
         grouped_files.setdefault(plugin_name, []).append(temp_file_info)
 
     for plugin_name, files in grouped_files.items():
@@ -92,7 +200,6 @@ def process_temp_files(cursor, temp_files):
         if not plugin_parser:
             logging.error(f"Парсер для плагина {plugin_name} не загружен. Пропускаем.")
             continue
-
         if not hasattr(plugin_parser, "parse"):
             logging.error(
                 f"Плагин {plugin_name} не содержит функцию parse(). Пропускаем."
@@ -103,57 +210,31 @@ def process_temp_files(cursor, temp_files):
         if hasattr(plugin_parser, "get_important_fields"):
             important_fields = plugin_parser.get_important_fields()
 
+        # Парсим файлы и нормализуем данные
         try:
             results = []
             if hasattr(plugin_parser, "merge_entries") and len(files) > 1:
-                logging.info(
-                    f"Объединение данных через merge_entries() для {plugin_name}..."
-                )
-
-                source_map = {
-                    "IP": ip_target,
-                    "Http": domain_target,
-                    "Https": domain_target,
-                }
-
                 parsed_lists = []
                 for f in files:
                     label = f.get("source", "unknown")
                     parsed = plugin_parser.parse(f["path"], source_label=label)
                     parsed_lists.append(parsed)
-
                 merged_data = plugin_parser.merge_entries(*parsed_lists)
-
-                results = []
-                for data in merged_data:
-                    source = data.get("source", "unknown")
-                    if "+" in source:
-                        data["target"] = (
-                            domain_target
-                            if "Http" in source or "Https" in source
-                            else ip_target
-                        )
-                    else:
-                        data["target"] = source_map.get(source, "unknown")
-
-                    if not important_fields or is_meaningful_entry(
-                        data, important_fields
-                    ):
-                        results.append(data)
+                results = [
+                    d
+                    for d in merged_data
+                    if not important_fields or is_meaningful_entry(d, important_fields)
+                ]
             else:
                 for f in files:
                     parsed = plugin_parser.parse(
                         f["path"], f.get("source", "unknown"), f.get("port", "-")
                     )
                     for entry in parsed:
-                        entry["target"] = (
-                            ip_target if f.get("source") == "IP" else domain_target
-                        )
                         if not important_fields or is_meaningful_entry(
                             entry, important_fields
                         ):
                             results.append(entry)
-
         except Exception as e:
             logging.error(f"Ошибка выполнения parse() для {plugin_name}: {e}")
             continue
@@ -162,10 +243,48 @@ def process_temp_files(cursor, temp_files):
             logging.info(f"Нет данных для вставки из {plugin_name}.")
             continue
 
+        # Для каждого результата — разложить по таблицам
         for item in results:
             try:
-                timestamp = datetime.now()
-                item["created_at"] = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                # Host (по ip/domain)
+                ip = item.get("ip") or (
+                    ip_target if item.get("target_type") == "ip" else None
+                )
+                fqdn = item.get("fqdn") or (
+                    domain_target if item.get("target_type") == "domain" else None
+                )
+                os_name = item.get("os")
+                host_meta = item.get("host_meta", {})
+                host_id = get_or_create_host(cursor, ip, fqdn, os_name, host_meta)
+
+                # Service (если порт/протокол есть)
+                port = (
+                    int(item.get("port", 0))
+                    if "port" in item and str(item["port"]).isdigit()
+                    else None
+                )
+                protocol = item.get("protocol")
+                service_name = item.get("service_name")
+                product = item.get("product")
+                version = item.get("version")
+                banner = item.get("banner")
+                service_meta = item.get("service_meta", {})  # <- только что дал плагин!
+                service_id = None
+                if port and protocol and service_name:
+                    service_id = get_or_create_service(
+                        cursor,
+                        host_id,
+                        port,
+                        protocol,
+                        service_name,
+                        product,
+                        version,
+                        banner,
+                        plugin_name,
+                        service_meta,
+                    )
+
+                # Vuln (или просто finding)
                 category = next(
                     (
                         p.get("category", "General Info")
@@ -174,23 +293,46 @@ def process_temp_files(cursor, temp_files):
                     ),
                     "General Info",
                 )
-
-                cursor.execute(
-                    """
-                    INSERT INTO results (target, plugin, category, severity, data, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        item.get("target", "unknown"),
-                        plugin_name,
-                        category,
-                        item.get("severity", "info"),
-                        json.dumps(item, ensure_ascii=False),
-                        timestamp,
-                    ),
+                severity = item.get("severity", "info")
+                title = item.get("title") or item.get("msg") or "Finding"
+                description = (
+                    item.get("description") or item.get("script_output") or "-"
                 )
+                refs = item.get("refs")
+                if isinstance(refs, str):
+                    refs = [refs]
+                vuln_meta = item.get("vuln_meta", {})
+                source = (
+                    item.get("source") or (item.get("meta") or {}).get("source") or "-"
+                )
+                vuln_id = create_vuln(
+                    cursor,
+                    service_id,
+                    host_id,
+                    plugin_name,
+                    source,
+                    category,
+                    severity,
+                    title,
+                    description,
+                    refs,
+                    vuln_meta,
+                )
+
+                # Evidence (сырые логи и т.д.)
+                evidence = item.get("evidence")
+                if evidence or item.get("raw_log") or item.get("log_path"):
+                    create_evidence(
+                        cursor,
+                        vuln_id,
+                        plugin_name,
+                        item.get("log_type", "raw"),
+                        item.get("log_path"),
+                        evidence or item.get("raw_log", ""),
+                    )
+
                 total_added += 1
-            except psycopg2.Error as e:
+            except Exception as e:
                 logging.warning(f"Ошибка вставки данных из {plugin_name}: {e}")
                 continue
 
@@ -199,13 +341,14 @@ def process_temp_files(cursor, temp_files):
     return total_added
 
 
+# Главная точка входа
 def collect(temp_files=None, purge_only=False):
     try:
         with connect_to_db() as conn:
             with conn.cursor() as cursor:
                 if purge_only:
                     logging.info("Режим очистки базы (--purge_only).")
-                    purge_results(cursor)
+                    purge_tables(cursor)
                     return
 
                 if not temp_files:
@@ -213,7 +356,7 @@ def collect(temp_files=None, purge_only=False):
                     return
 
                 total_added = process_temp_files(cursor, temp_files)
-
+                conn.commit()  # Не забываем!
                 logging.info(
                     f"Сбор данных завершён. Всего добавлено: {total_added} записей."
                 )
@@ -222,6 +365,7 @@ def collect(temp_files=None, purge_only=False):
         exit(1)
 
 
+# CLI обработчик
 if __name__ == "__main__":
     import argparse
 

@@ -3,7 +3,7 @@ services:
     image: postgres:17.5
     container_name: beescan_postgres
     environment:
-      POSTGRES_USER: secscan
+      POSTGRES_USER: beescan
       POSTGRES_PASSWORD: securepass
       POSTGRES_DB: beescan
     ports:

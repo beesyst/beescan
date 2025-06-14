@@ -1,10 +1,11 @@
+import importlib
 import os
 import sys
 
+# Добавляем корень проекта для импортов core.*
 sys.path.insert(0, "/")
 
 import argparse
-import importlib
 import json
 import logging
 import re
@@ -28,14 +29,13 @@ OUTPUT_DIR = os.path.join(ROOT_DIR, "reports")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CONFIG_PATH = os.path.join(ROOT_DIR, "config", "config.json")
-
 with open(CONFIG_PATH, "r") as f:
     CONFIG = json.load(f)
-
 DB_CONFIG = CONFIG["database"]
 PLUGINS = CONFIG.get("plugins", [])
 
 
+# Подключение к БД
 def connect_to_db():
     return psycopg2.connect(
         database=DB_CONFIG["POSTGRES_DB"],
@@ -46,10 +46,10 @@ def connect_to_db():
     )
 
 
+# Фильтр для Jinja2 — красиво подсвечивает ключевые слова/заголовки в тексте
 def highlight_keywords(text):
     if not isinstance(text, str):
         return text
-
     lines = text.splitlines()
     html = []
     current_sublist = []
@@ -77,7 +77,6 @@ def highlight_keywords(text):
         if not line:
             flush()
             continue
-
         if line.startswith("[") and line.endswith("]"):
             flush()
             html.append(f"<strong>{line}</strong>")
@@ -86,45 +85,41 @@ def highlight_keywords(text):
             current_title = line.rstrip(":")
         else:
             current_sublist.append(line)
-
     flush()
     return "<ul>\n" + "\n".join(html) + "\n</ul>"
 
 
+# Создание окружения Jinja2 для рендеринга шаблонов
 def get_jinja_env():
     env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
     env.filters["highlight_keywords"] = highlight_keywords
     return env
 
 
+# Категоризация результатов по категориям и плагинам
 def categorize_results(entries):
     plugin_categories = {
         plugin["name"]: plugin.get("category", "General Info") for plugin in PLUGINS
     }
     plugin_order = {plugin["name"]: idx for idx, plugin in enumerate(PLUGINS)}
-
     structured = defaultdict(dict)
     global_meta = {"created_at": None}
-
     for entry in entries:
         plugin = entry.get("plugin")
         category = plugin_categories.get(plugin, "General Info")
-
         if plugin not in structured[category]:
             structured[category][plugin] = []
         structured[category][plugin].append(entry)
-
         if global_meta["created_at"] is None and entry.get("created_at"):
             global_meta["created_at"] = entry["created_at"]
-
     for cat in structured:
         structured[cat] = OrderedDict(
             sorted(structured[cat].items(), key=lambda x: plugin_order.get(x[0], 999))
         )
-
     return structured, global_meta
 
 
+# Сортировка категорий в отчете по приоритету из конфига
 def sort_categories_by_priority(raw_results):
     category_order = CONFIG.get("report_category_order", [])
     order = {cat: idx for idx, cat in enumerate(category_order)}
@@ -133,77 +128,114 @@ def sort_categories_by_priority(raw_results):
     )
 
 
-def load_and_categorize_results():
-    raw_entries = []
+# Получение и загрузка результатов из snapshot
+def load_snapshot():
     conn = connect_to_db()
     cursor = conn.cursor()
+    result = {}
 
-    try:
-        cursor.execute(
-            "SELECT target, category, data, created_at, plugin FROM results ORDER BY created_at DESC"
-        )
+    for table in ["hosts", "services", "vuln", "evidence", "registry"]:
+        cursor.execute(f"SELECT * FROM {table}")
         rows = cursor.fetchall()
-
-        for row in rows:
-            target, category, data, created_at, plugin = row
-
-            if isinstance(data, str):
-                try:
-                    data = json.loads(data)
-                except Exception:
-                    pass
-
-            raw_entries.append(
-                {
-                    "target": target,
-                    "category": category,
-                    "data": data,
-                    "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                    "plugin": plugin,
-                }
-            )
-
-    except Exception as e:
-        logging.error(f"Ошибка при загрузке из results: {e}")
+        columns = [desc[0] for desc in cursor.description]
+        result[table] = [dict(zip(columns, row)) for row in rows]
 
     cursor.close()
     conn.close()
+    meta = {"created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    return result, meta
 
-    return categorize_results(raw_entries)
+
+# Собирает structured_results с помощью get_view_rows для каждого плагина
+def build_structured_results(snapshot):
+    structured = {}
+    for plugin_cfg in PLUGINS:
+        if not plugin_cfg.get("enabled", False):
+            continue
+        plugin = plugin_cfg["name"]
+        try:
+            plugin_mod = importlib.import_module(f"plugins.{plugin}")
+        except Exception:
+            continue
+        if hasattr(plugin_mod, "get_view_rows"):
+            entries = plugin_mod.get_view_rows(snapshot)
+        else:
+            entries = [v for v in snapshot.get("vuln", []) if v.get("plugin") == plugin]
+        category = plugin_cfg.get("category", "General Info")
+        if category not in structured:
+            structured[category] = {}
+        structured[category][plugin] = entries
+    return structured
 
 
+# Рендеринг HTML-отчета через Jinja2
 def render_html(results, output_path, meta, duration_map):
     logging.info(f"Поиск шаблона в: {TEMPLATES_DIR}")
     env = get_jinja_env()
-
     try:
         template = env.get_template("report.html.j2")
     except Exception as e:
         logging.error(f"Ошибка загрузки шаблона: {e}")
         raise
-
     theme = CONFIG.get("scan_config", {}).get("report_theme", "light")
 
+    structured_results = build_structured_results(results)
+
     rendered = template.render(
-        structured_results=results,
+        snapshot=results,
+        structured_results=structured_results,
         generation_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         report_theme=theme,
         config=CONFIG,
         meta=meta,
         duration_map=duration_map,
     )
-
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(rendered)
-
     logging.info(f"HTML-отчет создан: {output_path}")
 
 
+def fix_datetimes(obj):
+    if isinstance(obj, dict):
+        return {k: fix_datetimes(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [fix_datetimes(x) for x in obj]
+    elif isinstance(obj, datetime):
+        return obj.strftime("%Y-%m-%d %H:%M:%S")
+    return obj
+
+
+def export_json_report(results, meta, duration_map, output_path):
+    payload = {
+        "snapshot": fix_datetimes(results),
+        "meta": meta,
+        "duration_map": duration_map,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "config": CONFIG,
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    logging.info(f"JSON-отчет сохранен: {output_path}")
+
+
+def export_txt_report(snapshot, meta, duration_map, output_path):
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(f"# BeeScan Report\nGenerated at: {meta.get('created_at')}\n\n")
+        for table, rows in snapshot.items():
+            f.write(f"## {table.upper()}\n")
+            for row in rows:
+                for k, v in row.items():
+                    f.write(f"- {k}: {v}\n")
+                f.write("\n")
+
+
+# Генерация PDF-отчета на основе HTML (WeasyPrint)
 def generate_pdf(html_path, pdf_path):
     HTML(html_path).write_pdf(pdf_path)
     logging.info(f"PDF-отчет создан: {pdf_path}")
 
 
+# Красивое обрезание длинных ячеек для терминала
 def wrap_cell(value, width=80):
     return "\n".join(
         textwrap.wrap(
@@ -212,144 +244,151 @@ def wrap_cell(value, width=80):
     )
 
 
-def show_in_terminal(results, duration_map):
+# Отрисовка отчета в терминале (таблично, с шириной экрана)
+def show_in_terminal(snapshot, duration_map):
     terminal_width = shutil.get_terminal_size((160, 20)).columns
     console = Console(width=terminal_width)
+    for plugin_cfg in CONFIG["plugins"]:
+        plugin_name = plugin_cfg["name"]
+        if not plugin_cfg.get("enabled", False):
+            continue
 
-    for category, plugins in results.items():
-        for plugin_name, entries in plugins.items():
-            if not isinstance(entries, list):
-                continue
+        try:
+            plugin_module = importlib.import_module(f"plugins.{plugin_name}")
+        except Exception:
+            plugin_module = None
 
+        # Получаем все данные для плагина
+        if plugin_module and hasattr(plugin_module, "get_view_rows"):
+            all_data = plugin_module.get_view_rows(snapshot)
+        else:
             all_data = []
-            for entry in entries:
-                data = entry.get("data")
-                if isinstance(data, list) and all(isinstance(d, dict) for d in data):
-                    all_data.extend(data)
-                elif isinstance(data, dict):
-                    all_data.append(data)
+            for table_name, rows in snapshot.items():
+                for row in rows:
+                    if row.get("plugin") == plugin_name:
+                        all_data.append(row)
 
-            if not all_data:
-                continue
+        if not all_data:
+            continue
 
-            important_fields = []
-            merge_enabled = True
+        # Параметры колонок, merge, постпроцессинг и пр.
+        important_fields = getattr(plugin_module, "get_important_fields", lambda: [])()
+        merge_enabled = getattr(plugin_module, "should_merge_entries", lambda: True)()
+        column_order = getattr(plugin_module, "get_column_order", None)
+        if callable(column_order):
+            column_order = column_order()
+        wide_fields = getattr(plugin_module, "get_wide_fields", lambda: [])()
+        postprocess = getattr(plugin_module, "postprocess_result", lambda x: x)
 
-            try:
-                plugin_module = importlib.import_module(f"plugins.{plugin_name}")
-                if hasattr(plugin_module, "get_important_fields"):
-                    important_fields = plugin_module.get_important_fields()
-                if hasattr(plugin_module, "should_merge_entries"):
-                    merge_enabled = plugin_module.should_merge_entries()
-            except Exception:
-                pass
+        # meaningful
+        if important_fields:
 
-            if important_fields:
+            def is_meaningful(entry):
+                return not all(
+                    str(entry.get(k, "-")).strip() in ["-", "", "null", "None", "0"]
+                    for k in important_fields
+                )
 
-                def is_meaningful(entry):
-                    return not all(
-                        str(entry.get(k, "-")).strip() in ["-", "", "null", "None", "0"]
-                        for k in important_fields
-                    )
+            all_data = [d for d in all_data if is_meaningful(d)]
 
-                all_data = [d for d in all_data if is_meaningful(d)]
+        # merge
+        if merge_enabled:
+            seen = {}
+            for d in all_data:
+                key = (d.get("port"), d.get("protocol"), d.get("service_name"))
+                if key in seen:
+                    existing = seen[key]
+                    existing_sources = set(str(existing.get("source", "")).split("+"))
+                    new_sources = set(str(d.get("source", "")).split("+"))
+                    combined_sources = sorted(existing_sources.union(new_sources))
+                    existing["source"] = "+".join(combined_sources)
+                else:
+                    seen[key] = d
+            unique_data = list(seen.values())
+        else:
+            unique_data = all_data
 
-            if merge_enabled:
-                seen = {}
-                for d in all_data:
-                    key = (d.get("port"), d.get("protocol"), d.get("service_name"))
-                    if key in seen:
-                        existing = seen[key]
-                        existing_sources = set(existing.get("source", "").split("+"))
-                        new_sources = set(d.get("source", "").split("+"))
-                        combined_sources = sorted(existing_sources.union(new_sources))
-                        existing["source"] = "+".join(combined_sources)
-                    else:
-                        seen[key] = d
-                unique_data = list(seen.values())
-            else:
-                unique_data = all_data
+        if not unique_data:
+            continue
 
-            if not unique_data:
-                continue
-
+        # Определяем порядок колонок
+        if column_order:
+            keys = []
+            if "source" in column_order:
+                keys.append("source")
+            keys.extend([k for k in column_order if k != "source"])
+        else:
             all_keys = list(
                 dict.fromkeys(
                     k
                     for d in unique_data
                     for k in d.keys()
-                    if k not in ["severity", "created_at", "plugin", "target", "data"]
+                    if k
+                    not in [
+                        "created_at",
+                        "plugin",
+                        "target",
+                        "data",
+                        "host_meta",
+                        "service_meta",
+                    ]
                 )
             )
-            if "severity" not in all_keys:
-                all_keys.append("severity")
+            keys = []
+            if "source" in all_keys:
+                keys.append("source")
+            keys.extend([k for k in all_keys if k != "source"])
 
-            column_order = None
-            wide_fields = []
-            try:
-                if not plugin_module:
-                    plugin_module = importlib.import_module(f"plugins.{plugin_name}")
-                if hasattr(plugin_module, "get_column_order"):
-                    column_order = plugin_module.get_column_order()
-                if hasattr(plugin_module, "get_wide_fields"):
-                    wide_fields = plugin_module.get_wide_fields()
-            except Exception:
-                pass
+        # -- ВСТАВКА: отдельный заголовок секции по центру, перед таблицей --
+        section_title = f"{plugin_cfg['category']} / {plugin_name}"
+        pad = max(0, (terminal_width - len(section_title)) // 2)
+        console.print(" " * pad + section_title, style="bold blue")
+        # -- КОНЕЦ ВСТАВКИ --
 
-            if column_order:
-                keys = []
-                if "source" in all_keys:
-                    keys.append("source")
-                keys.extend(
-                    [k for k in column_order if k in all_keys and k != "source"]
-                )
-                keys.extend([k for k in all_keys if k not in keys])
-                if "severity" not in keys:
-                    keys.append("severity")
-                else:
-                    keys.append("severity")
-            else:
-                keys = []
-                if "source" in all_keys:
-                    keys.append("source")
-                keys.extend([k for k in all_keys if k != "source"])
-
-            table = Table(
-                title=f"[bold blue]{category} / {plugin_name}", show_lines=True
+        # Саму таблицу печатаем без title (title=None)
+        table = Table(
+            title=None,
+            show_lines=True,
+        )
+        for k in keys:
+            max_w = max(15, terminal_width // len(keys)) if k in wide_fields else 20
+            table.add_column(
+                k.replace("_", " ").title(),
+                overflow="fold",
+                max_width=max_w,
+            )
+        for d in unique_data:
+            processed = postprocess(d)
+            raw_values = [processed.get(k, "-") for k in keys]
+            if all(v in ["-", None, ""] for v in raw_values):
+                continue
+            row_values = [str(v) for v in raw_values]
+            table.add_row(*row_values)
+        console.print(table)
+        if plugin_name in duration_map:
+            console.print(
+                f"[italic cyan]⏱️ Время сканирования: {duration_map[plugin_name]} сек.[/italic cyan]\n"
             )
 
-            for k in keys:
-                max_w = max(15, terminal_width // len(keys)) if k in wide_fields else 20
-                table.add_column(
-                    k.replace("_", " ").title(),
-                    overflow="fold",
-                    max_width=max_w,
-                )
 
-            for d in unique_data:
-                raw_values = [d.get(k, "-") for k in keys]
-                if all(v in ["-", None, ""] for v in raw_values):
-                    continue
-                row_values = [str(v) for v in raw_values]
-                table.add_row(*row_values)
-
-            console.print(table)
-            if plugin_name in duration_map:
-                console.print(
-                    f"[italic cyan]⏱️ Время сканирования: {duration_map[plugin_name]} сек.[/italic cyan]\n"
-                )
-
-
+# Основная логика генерации отчетов (html, pdf, терминал)
 def main(format=None, timestamp=None, clear_reports=False):
+    if clear_reports:
+        logging.info("Очистка папки reports перед генерацией отчета...")
+        for filename in os.listdir(OUTPUT_DIR):
+            file_path = os.path.join(OUTPUT_DIR, filename)
+            try:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                logging.warning(f"Не удалось удалить файл {filename}: {e}")
+
     TEMP_PATH = os.path.join("/tmp", f"temp_files_{timestamp}.json")
     duration_map = {}
-
     if os.path.exists(TEMP_PATH):
         try:
             with open(TEMP_PATH, "r", encoding="utf-8") as f:
                 temp_data = json.load(f)
-
-            # Новый формат: один файл с двумя ключами
             if isinstance(temp_data, dict):
                 duration_list = temp_data.get("durations", [])
                 for item in duration_list:
@@ -359,26 +398,8 @@ def main(format=None, timestamp=None, clear_reports=False):
                         and "duration" in item
                     ):
                         duration_map[item["plugin"]] = item["duration"]
-
         except Exception as e:
             logging.warning(f"Не удалось загрузить durations из {TEMP_PATH}: {e}")
-
-    raw_results, meta = load_and_categorize_results()
-    results = sort_categories_by_priority(raw_results)
-
-    for target_data in results.values():
-        for plugin_name, plugin_data in target_data.items():
-            try:
-                plugin_module = importlib.import_module(f"plugins.{plugin_name}")
-                if hasattr(plugin_module, "postprocess_result"):
-                    for entry in plugin_data:
-                        if isinstance(entry.get("data"), list):
-                            entry["data"] = [
-                                plugin_module.postprocess_result(row)
-                                for row in entry["data"]
-                            ]
-            except Exception as e:
-                logging.warning(f"Ошибка при постобработке плагина {plugin_name}: {e}")
 
     if not timestamp:
         logging.error("Не передан параметр --timestamp, и он обязателен.")
@@ -388,15 +409,15 @@ def main(format=None, timestamp=None, clear_reports=False):
     if format:
         formats = [format]
 
-    if clear_reports:
-        logging.info("Очистка папки reports перед генерацией отчёта...")
-        for filename in os.listdir(OUTPUT_DIR):
-            file_path = os.path.join(OUTPUT_DIR, filename)
-            try:
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                logging.warning(f"Не удалось удалить файл {filename}: {e}")
+    # Получаем данные только из snapshot (таблицы)
+    results, meta = load_snapshot()
+
+    json_output = os.path.join(OUTPUT_DIR, f"report_{timestamp}.json")
+    export_json_report(results, meta, duration_map, json_output)
+
+    if "txt" in formats:
+        txt_output = os.path.join(OUTPUT_DIR, f"report_{timestamp}.txt")
+        export_txt_report(results, meta, duration_map, txt_output)
 
     if "terminal" in formats:
         show_in_terminal(results, duration_map)
@@ -404,11 +425,9 @@ def main(format=None, timestamp=None, clear_reports=False):
     if "html" in formats:
         logging.info("Проверка доступности шаблона...")
         logging.info(f"TEMPLATES_DIR = {TEMPLATES_DIR}")
-
         if not os.path.exists(TEMPLATES_DIR):
             logging.error("Папка шаблонов не найдена!")
             return
-
         try:
             files = os.listdir(TEMPLATES_DIR)
             logging.info(f"Файлы в шаблоне: {files}")
@@ -418,15 +437,14 @@ def main(format=None, timestamp=None, clear_reports=False):
         except Exception as e:
             logging.error(f"Ошибка при чтении шаблонов: {e}")
             return
-
         html_output = os.path.join(OUTPUT_DIR, f"report_{timestamp}.html")
         render_html(results, html_output, meta, duration_map)
-
         if "pdf" in formats:
             pdf_output = os.path.join(OUTPUT_DIR, f"report_{timestamp}.pdf")
             generate_pdf(html_output, pdf_output)
 
 
+# Точка входа: аргументы командной строки
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--format", help="Single format for backward compatibility")

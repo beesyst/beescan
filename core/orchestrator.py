@@ -2,10 +2,12 @@ import asyncio
 import json
 import os
 
+# Основные пути
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config", "config.json")
 
 
+# Формирование графа зависимостей плагинов
 def build_dependency_graph(plugin_configs):
     enabled_names = {p["name"] for p in plugin_configs if p.get("enabled")}
     graph = {}
@@ -22,6 +24,7 @@ def build_dependency_graph(plugin_configs):
     return graph
 
 
+# Топологическая сортировка для корректного порядка запуска
 def topological_sort(graph):
     from collections import defaultdict, deque
 
@@ -29,10 +32,8 @@ def topological_sort(graph):
     for node, deps in graph.items():
         for dep in deps:
             in_degree[node] += 1
-
     queue = deque([node for node in graph if in_degree[node] == 0])
     result = []
-
     while queue:
         node = queue.popleft()
         result.append(node)
@@ -41,26 +42,23 @@ def topological_sort(graph):
                 in_degree[neighbor] -= 1
                 if in_degree[neighbor] == 0:
                     queue.append(neighbor)
-
     if len(result) != len(graph):
         raise RuntimeError("Циклическая зависимость в плагинах!")
     return result
 
 
+# Основная функция оркестрации всех плагинов
 async def orchestrate(config):
-    from core.collector import collect
     from core.plugin_runner import run_plugin
 
     enabled_plugins = [p for p in config.get("plugins", []) if p.get("enabled")]
     graph = build_dependency_graph(enabled_plugins)
     sorted_plugins = topological_sort(graph)
     print(f"\n[SORTED PLUGINS]: {sorted_plugins}\n")
-
     plugins_by_name = {p["name"]: p for p in enabled_plugins}
 
     results = {}
     plugin_durations = {}
-
     executed = set()
     while len(executed) < len(sorted_plugins):
         to_run = []
@@ -88,18 +86,15 @@ async def orchestrate(config):
             plugin_durations[plugin_name] = duration
             executed.add(name)
 
-            if paths:
-                collect(temp_files=paths)
-
     return results, plugin_durations
 
 
+# CLI запуск для тестов/ручного старта
 if __name__ == "__main__":
     import sys
 
     config_path = sys.argv[1] if len(sys.argv) > 1 else CONFIG_PATH
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
-
     res, durs = asyncio.run(orchestrate(config))
     print(json.dumps({"results": res, "durations": durs}, indent=2, ensure_ascii=False))

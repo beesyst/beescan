@@ -1,0 +1,71 @@
+<h3>nmap</h3>
+{% set exclude_keys = ["severity", "created_at", "plugin"] %}
+{% set all_rows = entries %}
+{% if all_rows and all_rows[0] is mapping %}
+{% set all_keys = all_rows[0].keys() | reject("in", exclude_keys) | list %}
+{% else %}
+{% set all_keys = [] %}
+{% endif %}
+
+{# Жесткий порядок колонок для nmap #}
+{% set base_keys = [
+"source", "port", "protocol", "state", "reason", "service_name",
+"product", "version", "extra", "cpe", "script_output"
+] %}
+{% set column_order = base_keys | select("in", all_keys) | list %}
+
+{% if column_order %}
+<table>
+    <thead>
+        <tr>
+            {% for key in column_order %}
+            <th>{{ key.replace('_', ' ') | title }}</th>
+            {% endfor %}
+            <th>Severity</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Убираем дубли по (port, protocol, service_name) #}
+        {% set seen = {} %}
+        {% for row in all_rows %}
+        {% set key = (row.get("port", ""), row.get("protocol", ""), row.get("service_name", "")) %}
+        {% if key not in seen %}
+        {% set _ = seen.update({key: row}) %}
+        {% elif row.get("source") == "Both" %}
+        {% set _ = seen.update({key: row}) %}
+        {% endif %}
+        {% endfor %}
+        {% set rows_to_render = seen.values() %}
+        {% for row in rows_to_render %}
+        {% set values = [] %}
+        {% for key in column_order %}
+        {% set _ = values.append(row[key] if row[key] else "-") %}
+        {% endfor %}
+        {% set has_real_data = values | select('string') | reject('equalto', '-') | list | length > 1 %}
+        {% if has_real_data %}
+        <tr>
+            {% for key in column_order %}
+            {% if key == "script_output" %}
+            <td class="script-output">
+                <pre>{{ row[key] | e if row[key] else "-" }}</pre>
+            </td>
+            {% else %}
+            <td>{{ row[key] | default("-") | e }}</td>
+            {% endif %}
+            {% endfor %}
+            <td>
+                {{ row.severity | default("info") }}
+            </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+    </tbody>
+</table>
+{% if duration_map and 'nmap' in duration_map %}
+<div class="duration">
+    ⏱️ Scan duration: <strong>{{ duration_map['nmap'] }} sec</strong>
+</div>
+{% endif %}
+{% else %}
+<pre>{{ all_rows | tojson(indent=2) }}</pre>
+{% endif %}

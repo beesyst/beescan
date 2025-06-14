@@ -4,6 +4,7 @@ from datetime import datetime
 
 import psycopg2
 
+# Инициализация
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config", "config.json")
 
@@ -12,6 +13,7 @@ with open(CONFIG_PATH, "r") as f:
 DB_CONFIG = CONFIG["database"]
 
 
+# Подключение к базе
 def connect():
     return psycopg2.connect(
         database=DB_CONFIG["POSTGRES_DB"],
@@ -22,6 +24,7 @@ def connect():
     )
 
 
+# Добавление или обновление цели
 def add_target(
     target_type,
     target_value,
@@ -60,9 +63,11 @@ def add_target(
                     now,
                 ),
             )
+            conn.commit()
             return cur.fetchone()[0]
 
 
+# Получение целей с фильтрами
 def get_targets(
     filter_status=None,
     filter_type=None,
@@ -93,6 +98,7 @@ def get_targets(
             return cur.fetchall()
 
 
+# Обновление статуса цели по id
 def update_target_status(target_id, new_status):
     now = datetime.now()
     with connect() as conn:
@@ -101,14 +107,18 @@ def update_target_status(target_id, new_status):
                 "UPDATE registry SET status = %s, updated_at = %s WHERE id = %s",
                 (new_status, now, target_id),
             )
+            conn.commit()
 
 
+# Удаление цели по id
 def delete_target(target_id):
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM registry WHERE id = %s", (target_id,))
+            conn.commit()
 
 
+# Пример использования
 if __name__ == "__main__":
     tid = add_target(
         "ip",
