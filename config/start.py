@@ -304,8 +304,6 @@ def start_beescan_container():
             "-v",
             f"{os.path.join(ROOT_DIR, 'core')}:/core",
             "-v",
-            f"{os.path.join(ROOT_DIR, 'results')}:/results",
-            "-v",
             f"{os.path.join(ROOT_DIR, 'logs')}:/logs",
             "-v",
             f"{os.path.join(ROOT_DIR, 'config')}:/config",
@@ -313,6 +311,8 @@ def start_beescan_container():
             f"{os.path.join(ROOT_DIR, 'templates')}:/templates",
             "-v",
             f"{os.path.join(ROOT_DIR, 'reports')}:/reports",
+            "-v",
+            f"{os.path.join(ROOT_DIR, 'reports', 'tmp')}:/reports/tmp",
             "-v",
             f"{os.path.join(ROOT_DIR, 'plugins')}:/plugins",
             "-v",
@@ -365,8 +365,8 @@ def purge_database():
         logging.info("Флаг clear_db=false. Пропуск очистки базы.")
 
 
-# Очистка временных XML-файлов nmap
-def cleanup_tmp_files():
+# Очистка временных XML-файлов
+def cleanup_all_tmp_files():
     stage = "Удаление временных файлов"
     stop_event = threading.Event()
     ok_event = threading.Event()
@@ -375,6 +375,7 @@ def cleanup_tmp_files():
     )
     spinner_thread.start()
     try:
+        # Системный /tmp (xml, которые генерят плагины)
         tmp_dir = tempfile.gettempdir()
         tmp_patterns = [f"{tmp_dir}/*_ip.xml", f"{tmp_dir}/*_domain_*.xml"]
         files_deleted = 0
@@ -386,6 +387,22 @@ def cleanup_tmp_files():
                     files_deleted += 1
                 except Exception as e:
                     logging.warning(f"Не удалось удалить {f}: {e}")
+
+        # Папка beescan/reports/tmp
+        reports_tmp = os.path.join(ROOT_DIR, "reports", "tmp")
+        if os.path.isdir(reports_tmp):
+            for filename in os.listdir(reports_tmp):
+                file_path = os.path.join(reports_tmp, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        logging.info(f"Удален файл из reports/tmp: {file_path}")
+                        files_deleted += 1
+                except Exception as e:
+                    logging.warning(f"Не удалось удалить {file_path}: {e}")
+        else:
+            os.makedirs(reports_tmp, exist_ok=True)
+
         if files_deleted >= 0:
             ok_event.set()
     finally:
@@ -533,14 +550,14 @@ def post_scan_chown():
 # Основной workflow сканирования
 def main():
     print("[+] Запуск beescan...")
-    logging.info("==== beescan запуск начат ====")
+    logging.info("==== START ====")
     check_docker_installed()
     clean_docker_environment()
     start_postgres()
     ensure_beescan_base_image()
     start_beescan_container()
     purge_database()
-    cleanup_tmp_files()
+    cleanup_all_tmp_files()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     temp_files_path = os.path.join(
         tempfile.gettempdir(), f"temp_files_{timestamp}.json"
@@ -550,7 +567,7 @@ def main():
     generate_reports(timestamp)
     post_scan_chown()
     print("[+] beescan завершил выполнение!")
-    logging.info("==== beescan завершен успешно ====")
+    logging.info("==== FINISH ====")
     sys.exit(0)
 
 

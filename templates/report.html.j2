@@ -9,6 +9,61 @@
     {% else %}
     <link rel="stylesheet" href="../templates/css/style_light.css">
     {% endif %}
+    {# Глобальный CSS для Details/Show more #}
+    <style>
+        .show-more-btn {
+            padding: 2px 8px;
+            background: #191919;
+            color: #aaa;
+            border: 1px solid #333;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+
+        .show-more-btn:hover {
+            background: #272727;
+        }
+
+        .details-cell {
+            min-width: 320px;
+            max-width: 420px;
+            width: 420px;
+            vertical-align: top;
+            box-sizing: border-box;
+        }
+    </style>
+    <script>
+        function toggleDetails(btn) {
+            var block = btn.nextElementSibling;
+            if (block.style.display === "none" || block.style.display === "") {
+                block.style.display = "inline";
+                btn.innerText = "Hide";
+            } else {
+                block.style.display = "none";
+                btn.innerText = "Show more";
+            }
+        }
+    </script>
+    <script>
+        function toggleDetails(btn) {
+            var block = btn.nextElementSibling;
+            if (block.style.display === "none" || block.style.display === "") {
+                block.style.display = "block";
+                btn.innerText = "Hide";
+            } else {
+                block.style.display = "none";
+                btn.innerText = "Show more";
+            }
+        }
+        // По умолчанию скрывать все details-content
+        document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll(".details-content").forEach(function (block) {
+                block.style.display = "none";
+            });
+        });
+    </script>
 </head>
 
 <body>
@@ -31,7 +86,6 @@
     {% for category, modules in structured_results.items() %}
     <div class="module">
         <h2>{{ category }}</h2>
-
         {% for module_name, entries in modules.items() %}
         {% set template_path = "plugins/" ~ module_name ~ ".html.j2" %}
         {% include template_path ignore missing %}

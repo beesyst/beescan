@@ -319,6 +319,13 @@ def process_temp_files(cursor, temp_files):
                     vuln_meta,
                 )
 
+                evidence_path = item.get("evidence_path")
+                evidence_type = item.get("evidence_type", source)
+                if evidence_path:
+                    create_evidence(
+                        cursor, vuln_id, plugin_name, evidence_type, evidence_path, None
+                    )
+
                 # Evidence (сырые логи и т.д.)
                 evidence = item.get("evidence")
                 if evidence or item.get("raw_log") or item.get("log_path"):

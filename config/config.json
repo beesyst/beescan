@@ -29,7 +29,7 @@
       "install": ["apt-get update", "apt-get install -y nmap"],
       "depends_on": [],
       "strict_dependencies": false,
-      "level": "easy"
+      "level": "middle"
     },
     {
       "name": "nikto",

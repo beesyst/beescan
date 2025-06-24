@@ -7,10 +7,9 @@
 {% set all_keys = [] %}
 {% endif %}
 
-{# Жесткий порядок колонок для nmap #}
 {% set base_keys = [
 "source", "port", "protocol", "state", "reason", "service_name",
-"product", "version", "extra", "cpe", "script_output"
+"product", "version", "extra", "cpe"
 ] %}
 {% set column_order = base_keys | select("in", all_keys) | list %}
 
@@ -21,11 +20,11 @@
             {% for key in column_order %}
             <th>{{ key.replace('_', ' ') | title }}</th>
             {% endfor %}
+            <th>Details</th>
             <th>Severity</th>
         </tr>
     </thead>
     <tbody>
-        {# Убираем дубли по (port, protocol, service_name) #}
         {% set seen = {} %}
         {% for row in all_rows %}
         {% set key = (row.get("port", ""), row.get("protocol", ""), row.get("service_name", "")) %}
@@ -45,14 +44,45 @@
         {% if has_real_data %}
         <tr>
             {% for key in column_order %}
-            {% if key == "script_output" %}
-            <td class="script-output">
-                <pre>{{ row[key] | e if row[key] else "-" }}</pre>
+            {% if key == "source" %}
+            <td>
+                {% for src in row.source.split('+') %}
+                {% set file_link = evidence_map.get(src) %}
+                {% if file_link %}
+                <a href="{{ file_link | e }}" target="_blank">{{ src }}</a>
+                {% else %}
+                {{ src }}
+                {% endif %}
+                {%- if not loop.last %}+{% endif %}
+                {% endfor %}
             </td>
             {% else %}
             <td>{{ row[key] | default("-") | e }}</td>
             {% endif %}
             {% endfor %}
+            <td class="details-cell">
+                {# Получаем детали #}
+                {% set details = row.get('meta', {}).get('script_output')
+                or row.get('meta', {}).get('description')
+                or row.get('script_output')
+                or row.get('description')
+                or '-' %}
+                {% if details and details != '-' %}
+                {% set lines = details.split('\n') %}
+                {% set preview_lines = lines[:3] %}
+                {% set preview = preview_lines | join('\n') %}
+                {% set show_more_needed = lines|length > 3 or details|length > 200 %}
+                {% if show_more_needed %}
+                <span class="details-preview">{{ preview | e }}</span>
+                <button class="show-more-btn" onclick="toggleDetails(this)">Show more</button>
+                <span class="details-content" style="display:none;">{{ details[preview|length:] | e }}</span>
+                {% else %}
+                <span class="details-preview">{{ details | e }}</span>
+                {% endif %}
+                {% else %}
+                -
+                {% endif %}
+            </td>
             <td>
                 {{ row.severity | default("info") }}
             </td>

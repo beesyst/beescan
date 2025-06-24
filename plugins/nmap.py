@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -20,6 +21,11 @@ plugin_log = setup_plugin_logger("nmap")
 
 # Запуск Nmap и сохранение XML-результата во временный файл
 def run_nmap(target: str, suffix: str, args: str):
+    container_log = logging.getLogger()
+    from core.logger_plugin import setup_plugin_logger
+
+    plugin_log = setup_plugin_logger("nmap")
+
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{suffix}.xml")
     output_path = temp_file.name
     temp_file.close()
@@ -30,16 +36,26 @@ def run_nmap(target: str, suffix: str, args: str):
 
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
+    # Всё, что вывел nmap (stdout+stderr), пишем ТОЛЬКО в плагиновый лог
     full_log = f"Запуск Nmap на {target}: {cmd}\n"
     if result.stdout:
         full_log += result.stdout.strip()
     if result.stderr:
         full_log += f"\n[STDERR]:\n{result.stderr.strip()}"
-
     plugin_log.info(full_log)
+
     if result.returncode != 0:
         raise RuntimeError(f"Nmap завершился с ошибкой: {result.stderr.strip()}")
-    return output_path
+
+    # --- Новый код: копируем xml-файл в /reports/tmp/ для доступа из html-отчёта ---
+    reports_tmp = "/reports/tmp"
+    os.makedirs(reports_tmp, exist_ok=True)
+    basename = os.path.basename(output_path)
+    new_path = os.path.join(reports_tmp, basename)
+    shutil.copy2(output_path, new_path)
+    container_log.info(f"Копия XML создана: {new_path}")
+
+    return new_path
 
 
 # Форматирование вывода скриптов (например TLS, сертификаты, уязвимости)
@@ -206,6 +222,8 @@ def parse(xml_path: str, source_label: str = "unknown"):
                     ),
                     "script_output": format_script_output(raw_output),
                     "source": source_label,
+                    "evidence_path": xml_path,
+                    "evidence_type": source_label,
                 }
                 data["severity"] = classify_severity(data)
                 data["host_meta"] = {"os": os_name}
@@ -467,13 +485,13 @@ def get_column_order():
         "version",
         "extra",
         "cpe",
-        "script_output",
+        "details",
         "severity",
     ]
 
 
 def get_wide_fields():
-    return ["script_output", "extra", "cpe"]
+    return ["details", "extra", "cpe"]
 
 
 def get_view_rows(snapshot):
@@ -506,7 +524,20 @@ def get_view_rows(snapshot):
             meta = vuln.get("meta", {}) or {}
             merged["state"] = meta.get("state", "-")
             merged["reason"] = meta.get("reason", "-")
+
+            desc = (vuln.get("description") or "-").strip()
+            script_out = meta.get("script_output", "-")
+            if desc and script_out and script_out != "-" and script_out != desc:
+                merged["details"] = f"{desc}\n\n{script_out}"
+            elif script_out and script_out != "-":
+                merged["details"] = script_out
+            elif desc:
+                merged["details"] = desc
+            else:
+                merged["details"] = "-"
+
             results.append(merged)
+
     return results
 
 

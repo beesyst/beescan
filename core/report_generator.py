@@ -181,6 +181,17 @@ def render_html(results, output_path, meta, duration_map):
 
     structured_results = build_structured_results(results)
 
+    evidence_map = {}
+    for ev in results.get("evidence", []):
+        src = ev.get("log_type") or ev.get(
+            "source"
+        )  # или по-другому, если у тебя другой формат
+        path = ev.get("log_path")
+        if src and path:
+            # Делаем путь относительным для ссылок из отчета:
+            rel_path = os.path.relpath(path, OUTPUT_DIR)
+            evidence_map[src] = rel_path
+
     rendered = template.render(
         snapshot=results,
         structured_results=structured_results,
@@ -189,7 +200,9 @@ def render_html(results, output_path, meta, duration_map):
         config=CONFIG,
         meta=meta,
         duration_map=duration_map,
+        evidence_map=evidence_map,
     )
+
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(rendered)
     logging.info(f"HTML-отчет создан: {output_path}")
