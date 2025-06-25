@@ -217,18 +217,18 @@ All parameters are set in `config.json`:
 ## To-Do
 
 <!--KANBAN_START-->
-| Todo (5) | In Progress (2) | Done (27) |
+| Todo (5) | In Progress (1) | Done (28) |
 | --- | --- | --- |
-| PDF reports | Summary of vulnerabilities by severity | Normalize database structure and remove legacy `results` table |
-| Proxy integration (Tor/Chain) | Expose Raw Evidence and Expandable Details for Each Finding in HTML Report | Nikto: Auto-select web ports from Nmap scan results |
-| Integrate dig | &nbsp; | Dynamic plugin chaining: automatic orchestration based on scan dependencies |
-| Integrate nuclei | &nbsp; | Implement target registry for cross-plugin orchestration |
-| Multi-language support (RU/EN) | &nbsp; | Strict report and plugin order in output (categories + plugins) |
+| PDF reports | Summary of vulnerabilities by severity | Expose Raw Evidence and Expandable Details for Each Finding in HTML Report |
+| Proxy integration (Tor/Chain) | &nbsp; | Normalize database structure and remove legacy `results` table |
+| Integrate dig | &nbsp; | Nikto: Auto-select web ports from Nmap scan results |
+| Integrate nuclei | &nbsp; | Dynamic plugin chaining: automatic orchestration based on scan dependencies |
+| Multi-language support (RU/EN) | &nbsp; | Implement target registry for cross-plugin orchestration |
+| &nbsp; | &nbsp; | Strict report and plugin order in output (categories + plugins) |
 | &nbsp; | &nbsp; | Vulnerability severity classification |
 | &nbsp; | &nbsp; | Add network target support to nmap plugin configuration |
 | &nbsp; | &nbsp; | Add require and enabled fields to Nmap |
 | &nbsp; | &nbsp; | Auto-update Kanban board in README from GitHub Projects |
-| &nbsp; | &nbsp; | Expansion of scan complexity levels |
 
 <!--KANBAN_END-->
 
